@@ -80,11 +80,19 @@ class RETrainer(Trainer):
         total_loss = loss + scale_num * vib_loss
         
         # Log individual losses for monitoring
-        self.log({
-            'train/ce_loss': loss.item(),
-            'train/vib_loss': vib_loss.item(),
-            'train/scale_factor': scale_num,
-        })
+        metrics = {
+            'train/ce_loss': round(loss.item(), 3),
+            'train/vib_loss': round(vib_loss.item(), 3),
+            # 'train/scale_factor': scale_num,
+            # 'train/entity_entropy': model.entity_entropy,
+        }
+
+        # Add entropy for each layer
+        if hasattr(model, 'layer_entropies'):
+            for layer_idx, ent in enumerate(model.layer_entropies):
+                metrics[f'train/maxEntropy_layer_{layer_idx}'] = ent['maxEntropy']
+
+        self.log(metrics)
         
         return (total_loss, outputs) if return_outputs else total_loss
     
@@ -268,7 +276,7 @@ def main():
     # ========================================================================
     # Load model
     # ========================================================================
-    if args.resume_from_checkpoint:
+    if os.path.exists(args.resume_from_checkpoint):
         print(f"Resuming from checkpoint: {args.resume_from_checkpoint}")
         model = REModel.from_pretrained(
             args.resume_from_checkpoint, 

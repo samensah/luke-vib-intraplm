@@ -18,10 +18,9 @@ BETA=0.5
 #  1 = Second encoder layer
 #  2 = Third encoder layer
 # ... and so on
-VIB_LAYERS=(-2 0 1 2)
+VIB_LAYERS=(-2)
 
-# Optional: Set checkpoint path to resume training
-RESUME_FROM=""  # e.g., "outputs/rb_retacred/checkpoint-1500"
+
 
 # ============================================
 # AUTO-DERIVED PATHS
@@ -46,7 +45,7 @@ echo "========================================"
 echo "Model: ${MODEL_NAME} (${MODEL_PREFIX})"
 echo "Dataset: ${DATASET}"
 echo "VIB Layers: ${VIB_LAYERS[@]}"
-[ -n "$RESUME_FROM" ] && echo "Resume: ${RESUME_FROM}"
+
 echo "========================================"
 
 # ============================================
@@ -55,10 +54,14 @@ echo "========================================"
 for vib_idx in "${VIB_LAYERS[@]}"; do
     echo "Training VIB Layer ${vib_idx}..."
 
-    OUTPUT_DIR="outputs/${MODEL_PREFIX}_${DATASET}_${vib_idx}"
+    OUTPUT_DIR="outputs/${MODEL_PREFIX}_${DATASET}/${vib_idx}"
     echo "Output: ${OUTPUT_DIR}"
+
+    [ -n "$RESUME_FROM" ] && echo "Resume: ${RESUME_FROM}"
+    # Optional: Set checkpoint path to resume training
+    RESUME_FROM="outputs/lb_retacred/-2/checkpoint-2000"  # e.g., "outputs/rb_retacred/checkpoint-1500"
     
-    CUDA_VISIBLE_DEVICES=0 pyenv/bin/python src/train.py \
+    CUDA_VISIBLE_DEVICES=0 python src/train.py \
       --data_dir ${DATA_DIR} \
       --model_name_or_path ${MODEL_NAME} \
       --input_format entity_marker_punct \

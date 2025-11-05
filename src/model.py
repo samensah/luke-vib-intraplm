@@ -6,12 +6,89 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import math
 
+import numpy as np
+from scipy.linalg import eigvalsh
+
+from repitl import matrix_itl, difference_of_entropies
+
 from plm_vib.luke import LukeModel
 from plm_vib.roberta import RobertaModel
 
 # roberta-large
 # studio-ousia/luke-large
 
+
+def entropy_normalization(entropy, normalization, N, D):
+    """
+    Normalize the entropy based on the specified normalization method.
+
+    Args:
+        entropy (float): The entropy value to be normalized.
+        normalization (str): The normalization method to use.
+        N (int): The number of samples.
+        D (int): The dimensionality of the data.
+
+    Returns:
+        float: The normalized entropy value.
+    """
+    assert normalization in ['maxEntropy', 'logN', 'logD', 'logNlogD', 'raw', 'length']
+
+    if normalization == 'maxEntropy':
+        entropy /= min(math.log(N), math.log(D))
+    elif normalization == 'logN':
+        entropy /= math.log(N)
+    elif normalization == 'logD':
+        entropy /= math.log(D)
+    elif normalization == 'logNlogD':
+        entropy /= (math.log(N) * math.log(D))
+    elif normalization == 'raw':
+        pass
+    elif normalization == 'length':
+        entropy = N
+
+    return entropy
+
+
+
+
+
+def compute_entity_entropy(hidden_states, 
+                           entity_mask, 
+                           alpha=1.0, 
+                           normalizations=['maxEntropy']):
+    """
+    Compute Renyi entropy for entity tokens per sample.
+    
+    Args:
+        hidden_states: (batch_size, seq_len, hidden_dim)
+        entity_mask: (batch_size, seq_len) with 1s for entity tokens
+        alpha: Renyi entropy parameter (default 1 = Shannon entropy)
+    
+    Returns:
+        entropies: (batch_size,) - entropy value per sample
+    """
+    batch_size, N, D = hidden_states.shape
+    entropies = []
+    
+    for b in range(batch_size):
+        # Extract only entity tokens
+        entity_idx = entity_mask[b] == 1
+        entity_tokens = hidden_states[b, entity_idx]  # (num_entities, hidden_dim)
+        
+        if entity_tokens.shape[0] == 0:
+            entropies.append(torch.nan)
+            continue
+        
+        # Gram matrix: K = Z @ Z.T
+        K = torch.matmul(entity_tokens, entity_tokens.t())
+        K = torch.clamp(K, min=0)
+        K = K.double() / (torch.trace(K.double()) + 1e-8)
+        try:
+            entropies.append(matrix_itl.matrixAlphaEntropy(K, alpha=alpha).item())
+        except Exception as e:
+            entropies.append(np.nan)
+    return {norm: np.mean([entropy_normalization(x, norm, N, D) for x in entropies]) for norm in normalizations}
+ 
 
 class REModel(RobertaPreTrainedModel):
     def __init__(self, config):
@@ -44,8 +121,17 @@ class REModel(RobertaPreTrainedModel):
             input_ids,
             attention_mask=attention_mask,
             entity_mask=entity_mask,
+            output_hidden_states=True,
         )
         pooled_output = outputs.last_hidden_state
+
+        # Compute entropy only during evaluation (when labels is None)
+        if labels is None:
+            layer_entropies = []
+            for layer_hidden_states in outputs.hidden_states:
+                ent = compute_entity_entropy(layer_hidden_states, entity_mask)
+                layer_entropies.append(ent)
+            self.layer_entropies = layer_entropies
         
         idx = torch.arange(input_ids.size(0)).to(input_ids.device)
         ss_emb = pooled_output[idx, ss]
