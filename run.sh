@@ -18,7 +18,7 @@ BETA=0.5
 #  1 = Second encoder layer
 #  2 = Third encoder layer
 # ... and so on
-VIB_LAYERS=(-2)
+VIB_LAYERS=(-1)
 
 
 
@@ -59,7 +59,7 @@ for vib_idx in "${VIB_LAYERS[@]}"; do
 
     [ -n "$RESUME_FROM" ] && echo "Resume: ${RESUME_FROM}"
     # Optional: Set checkpoint path to resume training
-    RESUME_FROM="outputs/lb_retacred/-2/checkpoint-2000"  # e.g., "outputs/rb_retacred/checkpoint-1500"
+    RESUME_FROM=""  # e.g., "outputs/rb_retacred/checkpoint-1500"
     
     CUDA_VISIBLE_DEVICES=0 python src/train.py \
       --data_dir ${DATA_DIR} \

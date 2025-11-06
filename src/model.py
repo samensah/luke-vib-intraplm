@@ -18,77 +18,50 @@ from plm_vib.roberta import RobertaModel
 # studio-ousia/luke-large
 
 
-def entropy_normalization(entropy, normalization, N, D):
+def compute_dataset_entity_entropy(hidden_states, entity_mask, alpha=1.0,):
     """
-    Normalize the entropy based on the specified normalization method.
+    Compute dataset-level matrix-based entropy using mean entity embeddings per prompt.
 
-    Args:
-        entropy (float): The entropy value to be normalized.
-        normalization (str): The normalization method to use.
-        N (int): The number of samples.
-        D (int): The dimensionality of the data.
-
-    Returns:
-        float: The normalized entropy value.
-    """
-    assert normalization in ['maxEntropy', 'logN', 'logD', 'logNlogD', 'raw', 'length']
-
-    if normalization == 'maxEntropy':
-        entropy /= min(math.log(N), math.log(D))
-    elif normalization == 'logN':
-        entropy /= math.log(N)
-    elif normalization == 'logD':
-        entropy /= math.log(D)
-    elif normalization == 'logNlogD':
-        entropy /= (math.log(N) * math.log(D))
-    elif normalization == 'raw':
-        pass
-    elif normalization == 'length':
-        entropy = N
-
-    return entropy
-
-
-
-
-
-def compute_entity_entropy(hidden_states, 
-                           entity_mask, 
-                           alpha=1.0, 
-                           normalizations=['maxEntropy']):
-    """
-    Compute Renyi entropy for entity tokens per sample.
-    
     Args:
         hidden_states: (batch_size, seq_len, hidden_dim)
-        entity_mask: (batch_size, seq_len) with 1s for entity tokens
-        alpha: Renyi entropy parameter (default 1 = Shannon entropy)
-    
+            Token embeddings for each prompt.
+        entity_mask: (batch_size, seq_len)
+            Binary mask where 1 marks entity tokens.
+        alpha: float
+            Rényi entropy order (default 1.0 = von Neumann/Shannon entropy).
+
     Returns:
-        entropies: (batch_size,) - entropy value per sample
+        entropy: float
+            Dataset-level matrix-based entropy.
     """
-    batch_size, N, D = hidden_states.shape
-    entropies = []
-    
+    batch_size, seq_len, hidden_dim = hidden_states.shape
+    mean_entity_embeddings = []
+
     for b in range(batch_size):
-        # Extract only entity tokens
+        # Extract entity tokens for this prompt
         entity_idx = entity_mask[b] == 1
         entity_tokens = hidden_states[b, entity_idx]  # (num_entities, hidden_dim)
-        
+
         if entity_tokens.shape[0] == 0:
-            entropies.append(torch.nan)
             continue
-        
-        # Gram matrix: K = Z @ Z.T
-        K = torch.matmul(entity_tokens, entity_tokens.t())
-        K = torch.clamp(K, min=0)
-        K = K.double() / (torch.trace(K.double()) + 1e-8)
-        try:
-            entropies.append(matrix_itl.matrixAlphaEntropy(K, alpha=alpha).item())
-        except Exception as e:
-            entropies.append(np.nan)
-    return {norm: np.mean([entropy_normalization(x, norm, N, D) for x in entropies]) for norm in normalizations}
- 
+        mean_entity_embeddings.append(entity_tokens.mean(dim=0))
+
+    if len(mean_entity_embeddings) == 0:
+        return np.nan  # no entities found at all
+    Z = torch.stack(mean_entity_embeddings, dim=0)
+    K = torch.matmul(Z, Z.T)
+    K = K.double() / (torch.trace(K.double()) + 1e-8)
+    try:
+        entropy = matrix_itl.matrixAlphaEntropy(K, alpha=alpha).item()
+    except Exception as e:
+        print("Error computing dataset entropy:", e)
+        entropy = np.nan
+
+    # normalization: maxEntropy
+    entropy /= min(math.log(batch_size), math.log(hidden_dim))
+    return {'maxEntropy': entropy}
+
+
 
 class REModel(RobertaPreTrainedModel):
     def __init__(self, config):
@@ -129,7 +102,7 @@ class REModel(RobertaPreTrainedModel):
         if labels is None:
             layer_entropies = []
             for layer_hidden_states in outputs.hidden_states:
-                ent = compute_entity_entropy(layer_hidden_states, entity_mask)
+                ent = compute_dataset_entity_entropy(layer_hidden_states, entity_mask)
                 layer_entropies.append(ent)
             self.layer_entropies = layer_entropies
         
