@@ -74,23 +74,31 @@ class RETrainer(Trainer):
         # Unpack outputs
         loss = outputs[0]  # Main classification loss
         vib_loss = outputs[1]  # VIB regularization loss
-        
-        # Dynamic scaling: scale VIB loss by ratio of main loss to VIB loss
-        scale_num = loss.item() / (vib_loss.item() + 1e-8)
-        total_loss = loss + scale_num * vib_loss
-        
-        # Log individual losses for monitoring
-        metrics = {
-            'train/ce_loss': round(loss.item(), 3),
-            'train/vib_loss': round(vib_loss.item(), 3),
-            # 'train/scale_factor': scale_num,
-            # 'train/entity_entropy': model.entity_entropy,
-        }
 
-        # Add entropy for each layer
-        if hasattr(model, 'layer_entropies'):
-            for layer_idx, ent in enumerate(model.layer_entropies):
-                metrics[f'train/maxEntropy_layer_{layer_idx}'] = ent['maxEntropy']
+        if vib_loss is not None:
+            # Dynamic scaling: scale VIB loss by ratio of main loss to VIB loss
+            scale_num = loss.item() / (vib_loss.item() + 1e-8)
+            total_loss = loss + scale_num * vib_loss
+            
+            # Log individual losses for monitoring
+            metrics = {
+                'train/ce_loss': round(loss.item(), 3),
+                'train/vib_loss': round(vib_loss.item(), 3),
+                # 'train/scale_factor': scale_num,
+                # 'train/entity_entropy': model.entity_entropy,
+            }
+
+            # Add entropy for each layer
+            if hasattr(model, 'layer_entropies'):
+                for layer_idx, ent in enumerate(model.layer_entropies):
+                    metrics[f'train/maxEntropy_layer_{layer_idx}'] = ent['maxEntropy']
+        else:
+            # No VIB loss, just use the main loss
+            total_loss = loss
+            metrics = {
+                'train/ce_loss': round(loss.item(), 3),
+                # 'train/entity_entropy': model.entity_entropy,
+            }
 
         self.log(metrics)
         
@@ -123,7 +131,7 @@ class RETrainer(Trainer):
             # Based on your forward pass: outputs = (loss, vib_loss) + (logits,)
             # The 'collected_outputs' tuple holds everything *after* the first item (loss).
             # So it's (vib_loss_tensor, actual_logits_tensor)
-            
+
             # Extract the final logits tensor, which is the second element here:
             actual_logits = collected_outputs[1]
 
@@ -188,7 +196,9 @@ def main():
     
     # VIB-specific arguments
     parser.add_argument("--beta", type=float, default=0.5)
-    parser.add_argument("--vib_layer_idx", type=int, default=-1)
+    parser.add_argument("--vib_layer_idx", type=int, default=None)
+    parser.add_argument("--disable_vib", action="store_true", default=False,
+                        help="Disable VIB completely - sets vib_layer_idx to None")
     
     # Training arguments
     parser.add_argument("--output_dir", type=str, default="./outputs")
@@ -218,7 +228,7 @@ def main():
     parser.add_argument("--early_stopping_patience", type=int, default=0)
     
     # Resume training
-    parser.add_argument("--resume_from_checkpoint", type=str, default=None)
+    parser.add_argument("--resume_from_checkpoint", type=str, default="")
     
     # Misc
     parser.add_argument("--logging_steps", type=int, default=50)
@@ -227,6 +237,10 @@ def main():
     parser.add_argument("--bf16", action="store_true", default=False)
     
     args = parser.parse_args()
+
+    # Handle VIB disabling
+    if args.disable_vib:
+        args.vib_layer_idx=None
     
     # Auto-detect encoder type
     if 'luke' in args.model_name_or_path.lower():
@@ -265,8 +279,14 @@ def main():
     config.num_class = args.num_class
     config.dropout_prob = args.dropout_prob
     config.k_size = args.k_size
-    config.beta = args.beta
-    config.vib_layer_idx = args.vib_layer_idx
+
+    if args.vib_layer_idx is not None:
+        config.beta = args.beta
+        config.vib_layer_idx = args.vib_layer_idx
+    else:
+        config.beta = None
+        config.vib_layer_idx = None
+
     config.encoder_type = args.encoder_type
     
     tokenizer = AutoTokenizer.from_pretrained(
@@ -455,8 +475,13 @@ def main():
         fp.write(f"{'='*60}\n")
         fp.write(f"Model: {args.model_name_or_path}\n")
         fp.write(f"Encoder type: {args.encoder_type}\n")
-        fp.write(f"VIB layer: {args.vib_layer_idx}\n")
-        fp.write(f"Beta: {args.beta}\n")
+
+        if args.vib_layer_idx is not None:
+            fp.write(f"VIB layer: {args.vib_layer_idx}\n")
+            fp.write(f"Beta: {args.beta}\n")
+        else:
+            fp.write(f"VIB disabled\n")
+            
         fp.write(f"Seed: {args.seed}\n")
         fp.write(f"{'='*60}\n\n")
         

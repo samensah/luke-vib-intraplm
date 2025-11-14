@@ -525,6 +525,9 @@ class RobertaEncoder(nn.Module):
        all_self_attentions = () if output_attentions else None
        all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
 
+       # Initialize vib_loss to None at the start
+       vib_loss = None
+
        next_decoder_cache = () if use_cache else None
        for i, layer_module in enumerate(self.layer):
            if output_hidden_states:
@@ -567,9 +570,9 @@ class RobertaEncoder(nn.Module):
 
            hidden_states = layer_outputs[0]
 
-           # Apply VIB at specified layer (skip if applied to embeddings)
+           # Apply VIB at specified layer (skip if applied to embeddings or if VIB is disabled)
            if (mu_layer is not None and std_layer is not None and entity_mask is not None and 
-               beta is not None and device is not None and vib_layer_idx != -2):
+               beta is not None and device is not None and vib_layer_idx is not None and vib_layer_idx != -2):
                 
                # vib_layer_idx: -2 = embeddings, 0 = first layer, 1 = second layer, etc., -1 = last layer
                if (vib_layer_idx == i or  (vib_layer_idx == -1 and i == len(self.layer) - 1)):
@@ -765,9 +768,14 @@ class RobertaModel(RobertaPreTrainedModel):
 
        # VIB parameters
        self.beta = config.beta if hasattr(config, 'beta') else 0.5
-       self.vib_layer_idx = config.vib_layer_idx if hasattr(config, 'vib_layer_idx') else -1  # -1 means last layer
-       self.mu = nn.Linear(config.hidden_size, config.hidden_size)
-       self.std = nn.Linear(config.hidden_size, config.hidden_size)
+       self.vib_layer_idx = config.vib_layer_idx if hasattr(config, 'vib_layer_idx') else None  # -1 means last layer
+       # Only initialize VIB layers if vib_layer_idx is not None
+       if self.vib_layer_idx is not None:
+          self.mu = nn.Linear(config.hidden_size, config.hidden_size)
+          self.std = nn.Linear(config.hidden_size, config.hidden_size)
+       else:
+          self.mu = None
+          self.std = None
 
        self.embeddings = RobertaEmbeddings(config)
        self.encoder = RobertaEncoder(config)
@@ -903,9 +911,9 @@ class RobertaModel(RobertaPreTrainedModel):
            entity_mask=entity_mask,
        )
 
-           # Apply VIB to embeddings if vib_layer_idx == -2
+       # Apply VIB to embeddings if vib_layer_idx == -2
        embedding_vib_loss = None
-       if self.vib_layer_idx == -2 and entity_mask is not None:
+       if self.vib_layer_idx == -2 and entity_mask is not None and self.vib_layer_idx is not None:
             device = input_ids.device if input_ids is not None else inputs_embeds.device
             embedding_output, embedding_vib_loss = self._apply_vib_to_embeddings(
                 embedding_output, 
@@ -926,9 +934,9 @@ class RobertaModel(RobertaPreTrainedModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
             entity_mask=entity_mask,  # Pass VIB parameters
-            mu_layer=self.mu,
-            std_layer=self.std,
-            beta=self.beta,
+            mu_layer=self.mu if self.vib_layer_idx is not None else None,
+            std_layer=self.std if self.vib_layer_idx is not None else None,
+            beta=self.beta if self.vib_layer_idx is not None else None,
             vib_layer_idx=self.vib_layer_idx,
             device=input_ids.device if input_ids is not None else inputs_embeds.device,
         )

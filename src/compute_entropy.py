@@ -37,7 +37,7 @@ def load_model_and_tokenizer(checkpoint_path):
 def load_dataset_split(data_dir, split_name, args, tokenizer, processor):
     """Load a specific dataset split."""
     file_map = {
-        'dev': 'dev.json',
+        # 'dev': 'dev.json',
         'test': 'test.json',
         'cf_test': 'test_cf.json',
     }
@@ -148,7 +148,7 @@ def main():
     parser.add_argument('--data_dir', type=str, default='./data/retacred',
                         help='Path to data directory')
     parser.add_argument('--split', type=str, default='test',
-                        choices=['dev', 'test', 'cf_test', 'all'],
+                        choices=['test', 'cf_test', 'all'],
                         help='Which split(s) to evaluate on')
     parser.add_argument('--n_samples', type=int, default=1000,
                         help='Number of samples to use (stratified by relation type)')
@@ -191,7 +191,7 @@ def main():
     processor = TACREDProcessor(dummy_args, tokenizer)
     
     # Determine which splits to evaluate
-    splits = ['dev', 'test', 'cf_test'] if args.split == 'all' else [args.split]
+    splits = ['test', 'cf_test'] if args.split == 'all' else [args.split]
     
     results = {}
     
@@ -247,7 +247,7 @@ if __name__ == '__main__':
     # python compute_entropy.py --checkpoint_path outputs/lb_retacred/-2/checkpoint-3500 --split test --n_samples 1000
 
     # # All splits
-    # python compute_entropy.py --data_dir ./data/retacred --checkpoint_path outputs/lb_retacred/-2/checkpoint-3500 --split all --n_samples 100
+    # python src/compute_entropy.py --data_dir ./data/retacred --checkpoint_path outputs/lb_retacred/original/checkpoint-4000 --split all --n_samples 200
 
     # # Custom seed/output
     # python compute_entropy.py --data_dir ./data/retacred  --checkpoint_path outputs/lb_retacred/-2/checkpoint-3500 --split cf_test --n_samples 100 --seed 64 --output_dir ./my_results

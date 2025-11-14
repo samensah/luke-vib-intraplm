@@ -3,8 +3,7 @@
 # ============================================
 # CONFIGURATION
 # ============================================
-# "studio-ousia/luke-large"
-MODEL_NAME="roberta-base"
+MODEL_NAME="studio-ousia/luke-large"
 DATASET="retacred"
 EPOCHS=5
 NUM_CLASS=40
@@ -20,7 +19,7 @@ BETA=0.5
 #  1 = Second encoder layer
 #  2 = Third encoder layer
 # ... and so on
-VIB_LAYERS=(-2 0 1 2 3)
+VIB_LAYERS=(-3)
 
 
 
@@ -56,7 +55,7 @@ echo "========================================"
 for vib_idx in "${VIB_LAYERS[@]}"; do
     echo "Training VIB Layer ${vib_idx}..."
 
-    OUTPUT_DIR="outputs/${MODEL_PREFIX}_${DATASET}/${vib_idx}"
+    OUTPUT_DIR="outputs/${MODEL_PREFIX}_${DATASET}/-3"
     echo "Output: ${OUTPUT_DIR}"
 
     [ -n "$RESUME_FROM" ] && echo "Resume: ${RESUME_FROM}"
@@ -77,9 +76,11 @@ for vib_idx in "${VIB_LAYERS[@]}"; do
       --beta ${BETA} \
       --vib_layer_idx ${vib_idx} \
       --data_percentage ${DATA_PERCENTAGE} \
+      --disable_vib \
       ${RESUME_FROM:+--resume_from_checkpoint "$RESUME_FROM"}
+
     
-    echo "✓ Completed layer ${vib_idx}"
+    echo "✓ Completed without VIB"
     echo ""
 done
 

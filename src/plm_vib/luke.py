@@ -837,7 +837,7 @@ class LukeEncoder(nn.Module):
 
             # Apply VIB at specified layer
             if (mu_layer is not None and std_layer is not None and entity_mask is not None and 
-                beta is not None and device is not None and vib_layer_idx != -2): # Skip if applied to embeddings
+                beta is not None and device is not None and vib_layer_idx is not None and vib_layer_idx != -2): # Skip if applied to embeddings
                 
                 # Apply VIB at the specified layer (or last layer if vib_layer_idx is -1)
                 if (vib_layer_idx == i or 
@@ -1057,9 +1057,14 @@ class LukeModel(LukePreTrainedModel):
 
         # VIB parameters
         self.beta = config.beta if hasattr(config, 'beta') else 0.5
-        self.vib_layer_idx = config.vib_layer_idx if hasattr(config, 'vib_layer_idx') else 0  # -1 means last layer
-        self.mu = nn.Linear(config.hidden_size, config.hidden_size)
-        self.std = nn.Linear(config.hidden_size, config.hidden_size)
+        self.vib_layer_idx = config.vib_layer_idx if hasattr(config, 'vib_layer_idx') else None  # -1 means last layer
+        if self.vib_layer_idx:
+            self.mu = nn.Linear(config.hidden_size, config.hidden_size)
+            self.std = nn.Linear(config.hidden_size, config.hidden_size)
+        else:
+            self.mu = None
+            self.std = None
+
 
         self.embeddings = LukeEmbeddings(config)
         self.entity_embeddings = LukeEntityEmbeddings(config)
@@ -1200,7 +1205,7 @@ class LukeModel(LukePreTrainedModel):
 
         # NEW: Apply VIB to embeddings if vib_layer_idx == 0
         embedding_vib_loss = None
-        if self.vib_layer_idx == -2 and entity_mask is not None:
+        if self.vib_layer_idx == -2 and entity_mask is not None and self.vib_layer_idx is not None:
             word_embedding_output, embedding_vib_loss = self._apply_vib_to_embeddings(
                 word_embedding_output, 
                 entity_mask, 
@@ -1217,9 +1222,9 @@ class LukeModel(LukePreTrainedModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
             entity_mask=entity_mask, # Pass VIB parameters to encoder
-            mu_layer=self.mu,
-            std_layer=self.std,
-            beta=self.beta,
+            mu_layer=self.mu if self.vib_layer_idx is not None else None,
+            std_layer=self.std if self.vib_layer_idx is not None else None,
+            beta=self.beta if self.vib_layer_idx is not None else None,
             vib_layer_idx=self.vib_layer_idx,
             device=device,
         )
@@ -1273,6 +1278,7 @@ class LukeModel(LukePreTrainedModel):
         std_emb = F.softplus(self.std(embeddings) - 5, beta=1)
         mu_emb = self.mu(embeddings)
         std = std_emb.reshape(-1, std_emb.size(-1))
+        # std = torch.clamp(std, min=1e-6) # clamp std to prevent log(0)
         mu = mu_emb.reshape(-1, mu_emb.size(-1))
         entity_mask_ = entity_mask.reshape(-1)
         tmp = -0.5 * ((1 + 2 * std.log() - mu.pow(2) - std.pow(2)).sum(1) * entity_mask_).sum() / std_emb.size(0)
