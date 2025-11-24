@@ -3,7 +3,8 @@
 # ============================================
 # CONFIGURATION
 # ============================================
-MODEL_NAME="studio-ousia/luke-large"
+# "studio-ousia/luke-large"
+MODEL_NAME="roberta-base"
 DATASET="retacred"
 EPOCHS=5
 NUM_CLASS=40

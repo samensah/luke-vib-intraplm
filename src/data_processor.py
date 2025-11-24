@@ -204,35 +204,35 @@ class TACREDProcessor(Processor):
         print(rels)
         print()
 
-    def read(self, file_in):
-        features = []
-        with open(file_in, "r") as fh:
-            data = json.load(fh)
+    # def read(self, file_in):
+    #     features = []
+    #     with open(file_in, "r") as fh:
+    #         data = json.load(fh)
 
-        for d in tqdm(data):
-            ss, se = d['subj_start'], d['subj_end']
-            os, oe = d['obj_start'], d['obj_end']
+    #     for d in tqdm(data):
+    #         ss, se = d['subj_start'], d['subj_end']
+    #         os, oe = d['obj_start'], d['obj_end']
 
-            tokens = d['token']
-            tokens = [convert_token(token) for token in tokens]
+    #         tokens = d['token']
+    #         tokens = [convert_token(token) for token in tokens]
 
-            input_ids, new_ss, new_os, entity_mask = self.tokenize(tokens, d['subj_type'], d['obj_type'], ss, se, os, oe)
-            if new_os == None or new_ss == None:
-                continue
-            if new_ss >= 512 or new_os >= 512:
-                continue
-            rel = self.LABEL_TO_ID[d['relation']]
+    #         input_ids, new_ss, new_os, entity_mask = self.tokenize(tokens, d['subj_type'], d['obj_type'], ss, se, os, oe)
+    #         if new_os == None or new_ss == None:
+    #             continue
+    #         if new_ss >= 512 or new_os >= 512:
+    #             continue
+    #         rel = self.LABEL_TO_ID[d['relation']]
 
-            feature = {
-                'input_ids': input_ids,
-                'labels': rel,
-                'ss': new_ss,
-                'os': new_os,
-                'entity_mask': entity_mask,
-            }
+    #         feature = {
+    #             'input_ids': input_ids,
+    #             'labels': rel,
+    #             'ss': new_ss,
+    #             'os': new_os,
+    #             'entity_mask': entity_mask,
+    #         }
             
-            features.append(feature)
-        return features
+    #         features.append(feature)
+    #     return features
 
 
 
