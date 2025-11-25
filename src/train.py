@@ -18,7 +18,7 @@ from data_processor import TACREDProcessor
 from evaluation import get_f1
 from model import REModel
 from sklearn.model_selection import train_test_split
-from utils import collate_fn
+from utils.utils import collate_fn
 
 
 # ============================================================================
