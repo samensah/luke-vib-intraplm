@@ -194,6 +194,15 @@ def compute_on_concatenated_passes(model, dataloader, compute_function, **kwargs
                 sub_batch = model.prepare_inputs(sub_batch)
                
                 outputs = model(**sub_batch)
+
+                # [FIX START] ----------------------------------------------
+                if hasattr(outputs, 'hidden_states'):
+                    hidden_states = outputs.hidden_states
+                elif isinstance(outputs, dict) and 'hidden_states' in outputs:
+                    hidden_states = outputs['hidden_states']
+                else:
+                    hidden_states = outputs
+                # [FIX END] ------------------------------------------------
                 
                 # [MODIFIED START] -----------------------------------------
                 # Select the correct mask for pooling
@@ -208,7 +217,7 @@ def compute_on_concatenated_passes(model, dataloader, compute_function, **kwargs
                 layerwise_mean_tokens = [
                     # Pass the selected mask (pooling_mask) to the model helper
                     model._get_pooled_hidden_states(layer_states, pooling_mask, method='mean')
-                    for layer_states in outputs.hidden_states
+                    for layer_states in hidden_states
                 ]  # L x BS x D
                 
                 layerwise_mean_tokens = [mf.normalize(x.squeeze()) for x in layerwise_mean_tokens] # L x BS x D
@@ -287,7 +296,6 @@ def compute_on_concatenated_passes(model, dataloader, compute_function, **kwargs
 def calculate_and_save_layerwise_metrics(
     model,
     dataloader,
-    # model_specs: BaseModelSpecifications,
     model_specs,
     evaluation_metric_specs: EvaluationMetricSpecifications,
     dataloader_kwargs: Dict[str, Any],

@@ -11,21 +11,18 @@ from train import REDataset, data_collator
 from transformers import AutoConfig
 from transformers import AutoTokenizer
 
+checkpoint_path = "outputs/rb_tacred/-2/checkpoint-5000"
+config = AutoConfig.from_pretrained(checkpoint_path)
 
-config = AutoConfig.from_pretrained("outputs/rb_tacred/0/checkpoint-1")
-config.encoder_type = "roberta" # or "luke" depending on your model
 
-
-tokenizer = AutoTokenizer.from_pretrained("outputs/rb_tacred/0/checkpoint-1")
+tokenizer = AutoTokenizer.from_pretrained(checkpoint_path)
 model = REModelForMetrics.from_pretrained(
-    "outputs/rb_tacred/0/checkpoint-1",
+    checkpoint_path,
     config=config,
     use_safetensors=True,
     attn_implementation="eager"
 )
-
-
-# model.to('cuda')
+model.to('cuda')
 model.eval()
 
 # =========================================================
@@ -63,7 +60,7 @@ features = processor.read(f"{args.data_dir}/test.json")
 dataset = REDataset(features)
 dataloader = DataLoader(
     dataset, 
-    batch_size=len(dataset), # Or set a specific batch size like 32
+    batch_size=32, # Or set a specific batch size like 32
     collate_fn=data_collator,
     shuffle=False
 )
