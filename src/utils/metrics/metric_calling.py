@@ -296,10 +296,10 @@ def compute_on_concatenated_passes(model, dataloader, compute_function, **kwargs
 def calculate_and_save_layerwise_metrics(
     model,
     dataloader,
-    model_specs,
+    # model_specs,
     evaluation_metric_specs: EvaluationMetricSpecifications,
-    dataloader_kwargs: Dict[str, Any],
-    should_save_results: bool = True
+    # dataloader_kwargs: Dict[str, Any],
+    # should_save_results: bool = True
 ):
     if evaluation_metric_specs.evaluation_metric == 'entropy':
         compute_func_kwargs = {
@@ -342,14 +342,13 @@ def calculate_and_save_layerwise_metrics(
     compute_func = metric_name_to_function[evaluation_metric_specs.evaluation_metric]
     results = forward_pass_func(model, dataloader, compute_func, **compute_func_kwargs)
 
-    if should_save_results:
-        pass
-        # file_path = ""
-        # os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        # with open(file_path, "wb") as f:
-        #     pickle.dump(results, f)
+    # if should_save_results:
+    #     file_path = ""
+    #     os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    #     with open(file_path, "wb") as f:
+    #         pickle.dump(results, f)
 
-        # from ..misc.results_saving import save_results # here to avoid circular imports
-        # save_results(results, model_specs, evaluation_metric_specs, dataloader_kwargs)
+    #     from ..misc.results_saving import save_results # here to avoid circular imports
+    #     save_results(results, model_specs, evaluation_metric_specs, dataloader_kwargs)
 
     return results
