@@ -5,20 +5,15 @@
 # ============================================
 # "studio-ousia/luke-large"
 MODEL_NAME="roberta-base"
-DATASET="retacred"
+DATASET="tacrev"
 EPOCHS=5
-NUM_CLASS=40
+NUM_CLASS=42
 SEED=64
 DATA_PERCENTAGE=100
 BETA=0.5
 
 # VIB Layer Configuration
 # -3 = Original model
-# -2 = Word embedding layer (before encoder)
-# -1 = Last encoder layer
-#  0 = First encoder layer
-#  1 = Second encoder layer
-#  2 = Third encoder layer
 # ... and so on
 VIB_LAYERS=(-3)
 

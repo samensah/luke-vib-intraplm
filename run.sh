@@ -4,8 +4,9 @@
 # CONFIGURATION
 # ============================================
 # "studio-ousia/luke-large"
+# "roberta-base"
 MODEL_NAME="roberta-base"
-DATASET="tacred"
+DATASET="tacrev"
 EPOCHS=5
 NUM_CLASS=42
 SEED=64
@@ -13,14 +14,13 @@ DATA_PERCENTAGE=100
 BETA=0.5
 
 # VIB Layer Configuration
-# -3 = Original model
 # -2 = Word embedding layer (before encoder)
 # -1 = Last encoder layer
 #  0 = First encoder layer
 #  1 = Second encoder layer
 #  2 = Third encoder layer
 # ... and so on
-VIB_LAYERS=(8)
+VIB_LAYERS=(-2 -1 0 1 2 3 4 5 6 7 8 9 10)
 
 
 
@@ -61,7 +61,7 @@ for vib_idx in "${VIB_LAYERS[@]}"; do
 
     [ -n "$RESUME_FROM" ] && echo "Resume: ${RESUME_FROM}"
     # Optional: Set checkpoint path to resume training
-    RESUME_FROM="outputs/rb_tacred/8/checkpoint-3500"  # e.g., "outputs/rb_retacred/checkpoint-1500"
+    RESUME_FROM=""  # e.g., "outputs/rb_retacred/checkpoint-1500"
     
     CUDA_VISIBLE_DEVICES=0 python src/train.py \
       --data_dir ${DATA_DIR} \

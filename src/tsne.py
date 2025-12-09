@@ -11,7 +11,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from tqdm import tqdm
 import math
-
+from collections import defaultdict, Counter
+from sklearn.model_selection import train_test_split
+from matplotlib.patches import Patch
 
 # Local imports
 from model import REModelForMetrics
@@ -106,31 +108,37 @@ def extract_final_layer(model, dataloader, device):
 
     return extracted_data
 
-def plot_grid(all_models_data, id_to_label, output_path):
-    """
-    Plots a grid of PCA visualizations.
+def plot_grid(all_models_data, id_to_label, output_path, top_relations):
+    """Plots a grid of PCA visualizations for the provided top relations.
+
+    - `top_relations` should be a list of label names (strings) to include.
     """
     n_models = len(all_models_data)
-    cols = 4
+    cols = 5
     rows = math.ceil(n_models / cols)
-    
+
     fig, axes = plt.subplots(rows, cols, figsize=(20, 5 * rows))
     axes = axes.flatten()
-    
-    # Filter for top N relations to keep plots clean
-    # We calculate top N based on the first model's data
-    first_data = all_models_data[0]['data']
-    all_labels = [id_to_label[x[1]] for x in first_data]
-    from collections import Counter
-    counts = Counter(all_labels)
-    if 'no_relation' in counts: del counts['no_relation']
-    top_relations = [k for k, _ in counts.most_common(6)]
 
+    # Build global set of labels that actually appear (restricted to top_relations)
+    global_labels = set()
+    for model_info in all_models_data:
+        for _, label_id in model_info['data']:
+            label_name = id_to_label[label_id]
+            if label_name in top_relations:
+                global_labels.add(label_name)
+    global_labels = sorted(global_labels)
+
+    # Create consistent palette dict mapping label -> color
+    palette_colors = sns.color_palette('tab10', n_colors=max(1, len(global_labels))).as_hex()
+    palette = {lbl: palette_colors[i % len(palette_colors)] for i, lbl in enumerate(global_labels)}
+
+    # Plot each model
     for idx, model_info in enumerate(all_models_data):
         ax = axes[idx]
         data = model_info['data']
         vib_layer = model_info['vib_layer']
-        
+
         # Filter and Prepare PCA
         vecs = []
         labels = []
@@ -139,29 +147,34 @@ def plot_grid(all_models_data, id_to_label, output_path):
             if label_name in top_relations:
                 vecs.append(vec)
                 labels.append(label_name)
-        
-        if not vecs: continue
-            
+
+        if not vecs:
+            ax.set_visible(False)
+            continue
+
         X = np.array(vecs)
         pca = PCA(n_components=2)
         X_r = pca.fit_transform(X)
-        
-        # Scatter
-        # Map labels to colors consistently
-        unique_labels = sorted(list(set(labels)))
+
+        # Use seaborn scatter with a palette dict so colors are consistent across subplots
         sns.scatterplot(
             x=X_r[:, 0], y=X_r[:, 1], hue=labels, style=labels,
-            palette="tab10", ax=ax, legend=False, s=60, alpha=0.7
+            palette=palette, ax=ax, legend=False, s=60, alpha=0.8
         )
         ax.set_title(f"VIB Applied at Layer {vib_layer}")
         ax.set_xticks([])
         ax.set_yticks([])
 
-    # Create a single legend
-    handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc='upper center', ncol=len(top_relations), bbox_to_anchor=(0.5, 1.02))
-    
-    plt.tight_layout()
+    # Build figure-level legend from palette and reserve space at top so it doesn't overlap titles
+    legend_handles = [Patch(color=palette[lbl], label=lbl) for lbl in global_labels]
+    if legend_handles:
+        # Leave room at the top for the legend (rect top = 0.92)
+        fig.tight_layout(rect=[0, 0, 1, 0.92])
+        fig.legend(legend_handles, [h.get_label() for h in legend_handles], loc='upper center',
+                   ncol=min(len(legend_handles), 6), bbox_to_anchor=(0.5, 0.98))
+    else:
+        fig.tight_layout()
+
     plt.savefig(output_path)
     print(f"Saved comparison grid to {output_path}")
 
@@ -178,9 +191,9 @@ def parse_args():
     parser.add_argument('--data_file', type=str, default="data/tacred/test.json")
     parser.add_argument('--num_samples', type=int, default=1000)
     parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--top_k', type=int, default=5)
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     parser.add_argument('--seed', type=int, default=23)
-    parser.add_argument('--output_dir', type=str, default="analysis_results")
     return parser.parse_args()
 
 def main():
@@ -206,19 +219,51 @@ def main():
     print("Loading and preparing dataset...")
     processor = TACREDProcessor(proc_args, tokenizer)
     features = processor.read(args.data_file)
-    
-    random.seed(args.seed)
-    random.shuffle(features)
-    
-    if args.num_samples:
-        features = features[:args.num_samples]
-    
+
+    # Map IDs to Labels for plotting (needed before computing top_k)
+    id_to_label = {v: k for k, v in processor.LABEL_TO_ID.items()}
+
+    # Count label frequencies (using label IDs stored in features)
+    label_counts = Counter([feature['labels'] for feature in features])
+
+    # Remove 'no_relation' (if present) from counts so it can't be selected
+    no_rel_id = processor.LABEL_TO_ID.get('no_relation')
+    if no_rel_id in label_counts:
+        del label_counts[no_rel_id]
+
+    # Get the top_k label IDs and corresponding label names
+    top_label_ids = [label for label, _ in label_counts.most_common(args.top_k)]
+    top_labels = [id_to_label[label_id] for label_id in top_label_ids]
+
+    # Filter features to include only those with the selected top label IDs
+    top_features = [feature for feature in features if feature['labels'] in top_label_ids]
+
+    # Extract labels for stratification (still using label IDs)
+    stratify_labels = [feature['labels'] for feature in top_features]
+
+    # Perform stratified sampling using train_test_split
+    sample_size = min(args.num_samples, len(top_features))
+    if sample_size < args.num_samples:
+        print(f"Warning: requested num_samples={args.num_samples} greater than available top_features={len(top_features)}; using {sample_size} samples.")
+
+    sampled_features, _ = train_test_split(
+        top_features,
+        train_size=sample_size,
+        stratify=stratify_labels if len(set(stratify_labels)) > 1 else None,
+        random_state=args.seed
+    )
+
+    # Print statistics (label IDs -> counts)
+    sampled_counts = Counter([feature['labels'] for feature in sampled_features])
+    print(f"Sampled feature statistics (Top {args.top_k} labels):")
+    for label_id, count in sampled_counts.items():
+        print(f"Label {label_id} ({id_to_label[label_id]}): {count} samples")
+
+    features = sampled_features
+
     # Prepare Dataloader
     dataset = REDataset(features)
     dataloader = DataLoader(dataset, batch_size=args.batch_size, collate_fn=data_collator)
-    
-    # Map IDs to Labels for plotting
-    id_to_label = {v: k for k, v in processor.LABEL_TO_ID.items()}
 
     all_results = []
     print(f"\nStarting analysis for {len(args.checkpoints)} models...")
@@ -230,7 +275,7 @@ def main():
 
             # Load Model
             config = AutoConfig.from_pretrained(ckpt)
-            model = REModelForMetrics.from_pretrained(ckpt, config=config)
+            model = REModelForMetrics.from_pretrained(ckpt, config=config, attn_implementation="eager")
             model.to(args.device)
             model.eval()
             
@@ -258,8 +303,8 @@ def main():
         # A. Plot Grid of Manifolds
         entity_viz_dir = Path(ckpt).parent.parent / "entity_viz" 
         entity_viz_dir.mkdir(parents=True, exist_ok=True)
-        plot_grid_path = entity_viz_dir / "vib_grid_comparison"
-        plot_grid(all_results, id_to_label, plot_grid_path)
+        plot_grid_path = entity_viz_dir / f"vib_grid_{Path(args.data_file).parts[-1].split('.')[0]}_top{args.top_k}.png"
+        plot_grid(all_results, id_to_label, plot_grid_path, top_labels)
         
         
         print(f"\nAnalysis complete. Results saved to: {entity_viz_dir.resolve()}")
@@ -269,9 +314,7 @@ def main():
 if __name__ == "__main__":
     main()
 
-#     python tsne_v2.py \
+#     python tsne.py \
 #   --checkpoints "outputs/rb_tacred/0/checkpoint-1" \
 #   --data_file data/tacred/test.json \
-#   --method concat_pool \
-#   --output_dir results/vib_analysis \
 #   --device cpu

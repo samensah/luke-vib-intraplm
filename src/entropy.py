@@ -6,6 +6,7 @@ import pickle
 from types import SimpleNamespace
 from itertools import product
 import warnings
+import random
 
 from transformers import AutoConfig, AutoTokenizer
 from transformers.utils import logging
@@ -58,6 +59,9 @@ def get_dataloader(args, tokenizer, split='test', num_samples=1000, batch_size=3
         raise FileNotFoundError(f"Could not find dataset split at {input_file}")
         
     features = processor.read(input_file)
+    
+    random.seed(args.seed)
+    random.shuffle(features)
 
     # Optional slicing for debugging/speed
     if num_samples is not None and num_samples > 0:
@@ -90,6 +94,7 @@ def run_re_metrics(model, tokenizer, model_specs, args):
 
     # Extract Dataset Name (e.g., "tacred" from "./data/tacred")
     dataset_name = Path(args.data_dir).name
+    normalizations = ['maxEntropy', 'logN', 'logD', 'logNlogD', 'raw', 'length']
     
     for split, metric in product(splits, metrics):
         try:
@@ -101,14 +106,14 @@ def run_re_metrics(model, tokenizer, model_specs, args):
                     evaluation_metric=metric,
                     num_samples=args.num_samples,
                     alpha=1.0,
-                    normalizations=['maxEntropy']
+                    normalizations=normalizations
                 )
             elif metric == 'dataset-entropy':
                 evaluation_metric_specs = EvaluationMetricSpecifications(
                     evaluation_metric=metric,
                     num_samples=args.num_samples,
                     alpha=1.0,
-                    normalizations=['maxEntropy']
+                    normalizations=normalizations
                 )
             elif metric == 'curvature':
                 evaluation_metric_specs = EvaluationMetricSpecifications(
@@ -182,13 +187,14 @@ def run_re_metrics(model, tokenizer, model_specs, args):
 def parse_args():
     parser = argparse.ArgumentParser(description="Run metrics on TACRED RE Model")
     # Model Args
-    parser.add_argument('--checkpoint_path', type=str, default="outputs/rb_tacred/0/checkpoint-1", help="Path to model checkpoint")
+    parser.add_argument('--checkpoint_path', type=str, default="outputs/rb_tacred/-1/checkpoint-2000", help="Path to model checkpoint")
     # Data Args
     parser.add_argument('--data_dir', type=str, default="./data/tacred", help="Directory containing tacred json files")
     parser.add_argument('--input_format', type=str, default="typed_entity_marker_punct", help="Input format for processor")
     parser.add_argument('--max_seq_length', type=int, default=512)
-    parser.add_argument('--num_samples', type=int, default=32, help="Number of samples to evaluate (set to 0 for all)")
+    parser.add_argument('--num_samples', type=int, default=1000, help="Number of samples to evaluate (set to 0 for all)")
     parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--seed', type=int, default=23)
     # Execution Args
     parser.add_argument('--device', type=str, default='cpu', help="cuda or cpu")
     parser.add_argument('--overwrite', action='store_true', help="Overwrite existing result files")
@@ -223,3 +229,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # Usage: 
+    # python src/entropy.py --checkpoint_path outputs/rb_tacred/-1/checkpoint-2000 --data_dir data/tacred --num_samples 1000 --batch_size 32 --device cuda --overwrite 
