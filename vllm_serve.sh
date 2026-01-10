@@ -7,7 +7,6 @@ python -m vllm.entrypoints.openai.api_server \
     --port 8000 \
     --host 0.0.0.0
 
-
 \section{Client Resolution Agent}
 \label{sec:agent}
 
@@ -15,11 +14,19 @@ Given a user query $q$, we assume a client mention $m_0$ has been extracted upst
 
 \subsection{Problem Formulation}
 
-Client mention resolution is challenging because users refer to entities through diverse surface forms: abbreviations (\textit{JPMC} for JPMorgan Chase), acronyms, shorthand conventions (\textit{Mgmt.} for Management), and identifiers with minimal lexical overlap to canonical names. Mentions may also contain typographical errors, and multiple challenges frequently co-occur within a single mention. The task requires identifying:
+Client mention resolution is challenging because users refer to entities through diverse surface forms: abbreviations, acronyms, shorthand conventions (\textit{Mgmt.} for Management), and identifiers with minimal lexical overlap to canonical names. Mentions may also contain typographical errors, and multiple challenges frequently co-occur within a single mention.
+
+Crucially, a single mention may legitimately refer to multiple distinct entities. For example, the mention \textit{} could refer to both \textit{} and \textit{}---separate organizations sharing a common name component. The ground truth is therefore a set $\mathcal{C}^* \subseteq \mathcal{C}$ of one or more entities:
 \begin{equation}
-    c^* = \argmax_{c \in \mathcal{C}} \, \text{sim}(m, c)
+    \mathcal{C}^* = \left\{ c \in \mathcal{C} : \text{match}(m, c) = \textsc{True} \right\}
 \end{equation}
-where $\text{sim}(\cdot, \cdot)$ is a similarity function and $m$ is the (potentially refined) mention. In high-stakes domains, we require the top-ranked candidate to be correct, i.e., we optimize for hits@1.
+where $\text{match}(\cdot, \cdot)$ determines whether entity $c$ is a valid referent for mention $m$.
+
+The resolution task is to identify a candidate set $\hat{\mathcal{C}}$ that maximizes overlap with the ground truth:
+\begin{equation}
+    \hat{\mathcal{C}} = \left\{ c \in \mathcal{C} : \text{sim}(m, c) \geq \theta \right\}
+\end{equation}
+where $\text{sim}(\cdot, \cdot)$ is a similarity function and $\theta$ is a score threshold. We evaluate using set-based metrics: when $|\mathcal{C}^*| = 1$, this reduces to hits@1; when $|\mathcal{C}^*| > 1$, we measure precision and recall over the candidate set.
 
 \subsection{Fuzzy Matching Tool}
 
@@ -59,8 +66,8 @@ where $\mathcal{P}$ is the system prompt encoding the task instructions and $\th
 \begin{equation}
     a_t = \begin{cases}
         \textsc{Refine}(m_t) \rightarrow m_{t+1} & \text{if continuing search} \\
-        \textsc{Answer}(c_{(1)}) & \text{if terminating with result} \\
-        \textsc{Clarify} & \text{if disambiguation required}
+        \textsc{Answer}(\hat{\mathcal{C}}) & \text{if terminating with result(s)} \\
+        \textsc{Clarify} & \text{if user disambiguation required}
     \end{cases}
 \end{equation}
 
@@ -101,17 +108,17 @@ The iterative process can be summarized as:
 
 The agent terminates under the following conditions:
 
-\paragraph{High-Confidence Match.} If the top candidate achieves a similarity score above threshold $\theta_{\text{high}}$:
+\paragraph{High-Confidence Match.} The agent returns all candidates exceeding the confidence threshold:
 \begin{equation}
-    s_{(1)} \geq \theta_{\text{high}}
+    \hat{\mathcal{C}} = \left\{ c_i : s_i \geq \theta_{\text{high}} \right\}
 \end{equation}
-the agent returns $c^* = c_{(1)}$ as the resolved entity.
+When multiple entities share similar names, this allows the system to return all valid referents rather than arbitrarily selecting one.
 
 \paragraph{Maximum Iterations.} To bound computation, we enforce a maximum iteration limit:
 \begin{equation}
     t \geq T_{\max}
 \end{equation}
-If reached without a high-confidence match, the agent returns the best available candidate $c_{(1)}$ from the final iteration, provided $s_{(1)} \geq \theta_{\text{min}}$ for a minimum acceptable threshold.
+If reached without high-confidence matches, the agent returns candidates from the final iteration that exceed a minimum acceptable threshold: $\hat{\mathcal{C}} = \{ c_i : s_i \geq \theta_{\text{min}} \}$.
 
 \paragraph{No Progress.} If successive refinements fail to improve the top score:
 \begin{equation}
@@ -121,19 +128,19 @@ the agent may terminate early to avoid unproductive iterations.
 
 \subsection{Disambiguation Protocol}
 
-When the candidate set exhibits ambiguity, the agent defers to the user rather than risking incorrect resolution. Specifically, disambiguation is triggered when:
+When multiple candidates exceed the confidence threshold, the system must distinguish between two scenarios:
 
-\paragraph{Multiple High-Scoring Candidates.} Two or more candidates exceed the confidence threshold:
-\begin{equation}
-    \left| \{ c_i : s_i \geq \theta_{\text{high}} \} \right| > 1
-\end{equation}
+\paragraph{Legitimate Multi-Entity Reference.} The mention genuinely refers to multiple distinct entities sharing a common name component. For example, ... correctly maps to both .... In this case, the system returns the full candidate set $\hat{\mathcal{C}}$ for downstream processing.
 
-\paragraph{Insufficient Score Gap.} The margin between top candidates is below a discrimination threshold:
-\begin{equation}
-    s_{(1)} - s_{(2)} < \delta
-\end{equation}
+\paragraph{Ambiguous Reference Requiring Clarification.} The mention is underspecified and the user likely intended a single entity, but the system cannot determine which. This occurs when:
+\begin{itemize}
+    \item The similarity scores are clustered with insufficient separation: $s_{(1)} - s_{(k)} < \delta$ for multiple candidates
+    \item The candidates represent genuinely different entities (not subsidiaries or related companies) that the user must disambiguate
+\end{itemize}
 
-In such cases, the agent presents the ambiguous candidates to the user with their associated metadata, requesting explicit selection. This ensures that resolution errors do not propagate to downstream analysis, which is critical in high-stakes applications where incorrect client identification carries regulatory and liability risks.
+In ambiguous cases, the agent presents candidates to the user with their associated metadata, requesting explicit selection. This ensures that resolution errors do not propagate to downstream analysis, which is critical in high-stakes applications where incorrect client identification carries regulatory and liability risks.
+
+Distinguishing between these scenarios leverages both the similarity score distribution and domain knowledge about entity relationships encoded in the database (e.g., parent-subsidiary links, known aliases).
 
 \subsection{Prompt Design}
 
